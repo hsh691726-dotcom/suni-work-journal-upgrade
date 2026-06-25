@@ -57,6 +57,10 @@
     @apply grid grid-cols-[auto_1fr_auto_auto] items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm transition hover:border-blue-300 hover:bg-blue-50;
   }
 
+  .quick-entry-compact {
+    @apply grid-cols-[auto_1fr_auto];
+  }
+
   .calendar-cell {
     @apply flex min-h-28 flex-col rounded-lg border border-slate-200 p-2 text-left text-sm transition hover:border-blue-300 hover:bg-blue-50;
   }

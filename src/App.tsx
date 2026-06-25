@@ -204,21 +204,34 @@ export default function App() {
   const dashboard = useMemo(() => {
     const today = todayKey();
     const currentMonth = today.slice(0, 7);
+    const todayEntries = entriesForDate(entries, today);
+    const workEntries = entries.filter((entry) => entry.kind === "업무");
+    const personalEntries = entries.filter((entry) => entry.kind === "개인");
     return {
-      today: entriesForDate(entries, today).filter((entry) => entry.status !== "완료").length,
-      week: entries.filter((entry) => isThisWeek(entry.workDate) && entry.status !== "완료").length,
-      month: entries.filter((entry) => entry.workDate.startsWith(currentMonth) && entry.status !== "완료").length,
-      overdue: entries.filter((entry) => entry.workDate < today && entry.status !== "완료").length,
-      done: entries.filter((entry) => entry.workDate.startsWith(currentMonth) && entry.status === "완료").length,
+      workToday: todayEntries.filter((entry) => entry.kind === "업무" && entry.status !== "완료").length,
+      workWeek: workEntries.filter((entry) => isThisWeek(entry.workDate) && entry.status !== "완료").length,
+      workMonth: workEntries.filter((entry) => entry.workDate.startsWith(currentMonth) && entry.status !== "완료").length,
+      workOverdue: workEntries.filter((entry) => entry.workDate < today && entry.status !== "완료").length,
+      personalToday: todayEntries.filter((entry) => entry.kind === "개인" && entry.status !== "완료").length,
+      personalWeek: personalEntries.filter((entry) => isThisWeek(entry.workDate) && entry.status !== "완료").length,
+      personalMonth: personalEntries.filter((entry) => entry.workDate.startsWith(currentMonth) && entry.status !== "완료").length,
     };
   }, [entries]);
 
   const focusEntries = useMemo(() => {
     const today = todayKey();
     return materializeEntriesForMonth(entries, parseDateKey(today))
-      .filter((entry) => entry.status !== "완료" && (entry.workDate <= today || isThisWeek(entry.workDate)))
+      .filter((entry) => entry.kind === "업무" && entry.status !== "완료" && (entry.workDate <= today || isThisWeek(entry.workDate)))
       .sort((a, b) => a.workDate.localeCompare(b.workDate) || a.workTime.localeCompare(b.workTime) || a.title.localeCompare(b.title, "ko"))
       .slice(0, 8);
+  }, [entries]);
+
+  const personalFocusEntries = useMemo(() => {
+    const today = todayKey();
+    return materializeEntriesForMonth(entries, parseDateKey(today))
+      .filter((entry) => entry.kind === "개인" && entry.status !== "완료" && (entry.workDate <= today || isThisWeek(entry.workDate)))
+      .sort((a, b) => a.workDate.localeCompare(b.workDate) || a.workTime.localeCompare(b.workTime) || a.title.localeCompare(b.title, "ko"))
+      .slice(0, 4);
   }, [entries]);
 
   async function persistAdd(entry: WorkEntry) {
@@ -425,10 +438,35 @@ export default function App() {
       </header>
 
       <section className="mx-auto grid max-w-7xl gap-4 px-4 py-5 md:grid-cols-4">
-        <Metric label="오늘 일정" value={`${dashboard.today}건`} />
-        <Metric label="이번주 일정" value={`${dashboard.week}건`} />
-        <Metric label="이달 일정" value={`${dashboard.month}건`} />
-        <Metric label="지연 일정" value={`${dashboard.overdue}건`} tone={dashboard.overdue ? "danger" : "default"} />
+        <Metric label="오늘 업무" value={`${dashboard.workToday}건`} />
+        <Metric label="이번주 업무" value={`${dashboard.workWeek}건`} />
+        <Metric label="이달 업무" value={`${dashboard.workMonth}건`} />
+        <Metric label="지연 업무" value={`${dashboard.workOverdue}건`} tone={dashboard.workOverdue ? "danger" : "default"} />
+      </section>
+
+      <section className="mx-auto max-w-7xl px-4 pb-5">
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 shadow-soft">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-rose-700">개인 일정</p>
+              <p className="mt-1 text-sm text-rose-700">업무 대시보드와 따로 구분해서 확인합니다.</p>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-center text-sm md:min-w-80">
+              <div className="rounded-md bg-white/80 px-3 py-2">
+                <p className="text-xs text-rose-600">오늘</p>
+                <p className="text-xl font-bold text-rose-800">{dashboard.personalToday}건</p>
+              </div>
+              <div className="rounded-md bg-white/80 px-3 py-2">
+                <p className="text-xs text-rose-600">이번주</p>
+                <p className="text-xl font-bold text-rose-800">{dashboard.personalWeek}건</p>
+              </div>
+              <div className="rounded-md bg-white/80 px-3 py-2">
+                <p className="text-xs text-rose-600">이달</p>
+                <p className="text-xl font-bold text-rose-800">{dashboard.personalMonth}건</p>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section className="mx-auto max-w-7xl px-4">
@@ -450,16 +488,17 @@ export default function App() {
       </section>
 
       <section className="mx-auto max-w-7xl px-4 pt-5">
+        <div className="grid gap-4 lg:grid-cols-[1.4fr_0.8fr]">
         <div className="panel">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-bold">오늘 챙길 업무</h2>
-              <p className="text-sm text-slate-500">지연 일정과 이번 주 미완료 일정을 먼저 보여줍니다.</p>
+              <p className="text-sm text-slate-500">지연 업무와 이번 주 미완료 업무를 먼저 보여줍니다.</p>
             </div>
             <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-600">{focusEntries.length}건</span>
           </div>
           {focusEntries.length === 0 ? (
-            <p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">급하게 챙길 일정이 없습니다.</p>
+            <p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">급하게 챙길 업무가 없습니다.</p>
           ) : (
             <div className="grid gap-2 md:grid-cols-2">
               {focusEntries.map((entry) => (
@@ -472,6 +511,30 @@ export default function App() {
               ))}
             </div>
           )}
+        </div>
+
+        <div className="panel border-rose-200">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold">개인 일정</h2>
+              <p className="text-sm text-slate-500">오늘과 이번 주 개인 일정을 따로 보여줍니다.</p>
+            </div>
+            <span className="rounded-full bg-rose-50 px-3 py-1 text-sm font-semibold text-rose-700">{personalFocusEntries.length}건</span>
+          </div>
+          {personalFocusEntries.length === 0 ? (
+            <p className="rounded-lg bg-rose-50 p-4 text-sm text-rose-700">가까운 개인 일정이 없습니다.</p>
+          ) : (
+            <div className="space-y-2">
+              {personalFocusEntries.map((entry) => (
+                <button key={entry.id} className="quick-entry quick-entry-compact hover:border-rose-300 hover:bg-rose-50" onClick={() => openEntryDate(entry)}>
+                  <span className="font-semibold">{entry.workDate}</span>
+                  <span className="truncate">{entry.workTime ? `${entry.workTime} · ${entry.title}` : entry.title}</span>
+                  <span className={`rounded-full border px-2 py-0.5 text-xs ${KIND_COLORS[entry.kind]}`}>{entry.kind}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         </div>
       </section>
 
@@ -496,6 +559,8 @@ export default function App() {
               const key = dateKey(day);
               const inMonth = day.getMonth() === anchor.getMonth();
               const dayEntries = monthEntries.filter((entry) => entry.workDate === key);
+              const workCount = dayEntries.filter((entry) => entry.kind === "업무").length;
+              const personalCount = dayEntries.filter((entry) => entry.kind === "개인").length;
               const selected = key === selectedDate;
               return (
                 <button
@@ -504,10 +569,13 @@ export default function App() {
                   onClick={() => setSelectedDate(key)}
                 >
                   <span className="font-semibold">{day.getDate()}</span>
-                  <span className="text-xs text-slate-500">{dayEntries.length ? `${dayEntries.length}건` : ""}</span>
+                  <span className="flex flex-wrap gap-1 text-[11px]">
+                    {workCount > 0 && <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-blue-700">업무 {workCount}</span>}
+                    {personalCount > 0 && <span className="rounded-full bg-rose-50 px-1.5 py-0.5 text-rose-700">개인 {personalCount}</span>}
+                  </span>
                   <span className="mt-2 space-y-1">
                     {dayEntries.slice(0, 3).map((entry) => (
-                      <span key={entry.id} className={`block truncate rounded border-l-4 px-1.5 py-1 text-left text-[11px] ${STATUS_COLORS[entry.status]}`}>
+                      <span key={entry.id} className={`block truncate rounded border-l-4 px-1.5 py-1 text-left text-[11px] ${KIND_COLORS[entry.kind]}`}>
                         {entry.workTime ? `${entry.workTime} ${entry.kind} · ${entry.title}` : `${entry.kind} · ${entry.title}`}
                       </span>
                     ))}
