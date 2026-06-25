@@ -16,6 +16,8 @@ import {
   ALARM_MODES,
   APP_TITLE,
   CATEGORIES,
+  ENTRY_KINDS,
+  KIND_COLORS,
   PRIORITIES,
   REPEAT_FLAGS,
   sampleEntries,
@@ -51,6 +53,7 @@ function normalizeEntry(entry: WorkEntry): WorkEntry {
   return {
     ...entry,
     workTime: entry.workTime ?? "",
+    kind: entry.kind ?? "업무",
     alarmMode: entry.alarmMode ?? "없음",
   };
 }
@@ -94,6 +97,7 @@ export default function App() {
   const [draft, setDraft] = useState<EntryDraft>(() => emptyDraftFor(todayKey()));
   const [editingId, setEditingId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [kindFilter, setKindFilter] = useState("전체");
   const [statusFilter, setStatusFilter] = useState("전체");
   const [categoryFilter, setCategoryFilter] = useState("전체");
   const [notice, setNotice] = useState("");
@@ -188,13 +192,14 @@ export default function App() {
       .filter((entry) => {
         const matchesText =
           !text ||
-          [entry.title, entry.category, entry.vendor, entry.memo, entry.status, entry.priority, entry.workTime, entry.alarmMode].join(" ").toLowerCase().includes(text);
+          [entry.kind, entry.title, entry.category, entry.vendor, entry.memo, entry.status, entry.priority, entry.workTime, entry.alarmMode].join(" ").toLowerCase().includes(text);
+        const matchesKind = kindFilter === "전체" || entry.kind === kindFilter;
         const matchesStatus = statusFilter === "전체" || entry.status === statusFilter;
         const matchesCategory = categoryFilter === "전체" || entry.category === categoryFilter;
-        return matchesText && matchesStatus && matchesCategory;
+        return matchesText && matchesKind && matchesStatus && matchesCategory;
       })
       .sort((a, b) => a.workDate.localeCompare(b.workDate) || a.workTime.localeCompare(b.workTime) || a.title.localeCompare(b.title, "ko"));
-  }, [entries, query, statusFilter, categoryFilter]);
+  }, [entries, query, kindFilter, statusFilter, categoryFilter]);
 
   const dashboard = useMemo(() => {
     const today = todayKey();
@@ -251,7 +256,7 @@ export default function App() {
 
   async function handleSubmit() {
     if (!draft.title.trim()) {
-      setNotice("업무명을 먼저 입력해 주세요.");
+      setNotice("제목을 먼저 입력해 주세요.");
       return;
     }
     if (!isValidWorkTime(draft.workTime)) {
@@ -266,10 +271,10 @@ export default function App() {
     try {
       if (editingId) {
         await persistUpdate(editingId, draft);
-        setNotice("업무를 수정하고 저장했습니다.");
+        setNotice("일정을 수정하고 저장했습니다.");
       } else {
         await persistAdd(makeEntry(draft));
-        setNotice("업무를 추가하고 저장했습니다.");
+        setNotice("일정을 추가하고 저장했습니다.");
       }
       setEditingId(null);
       setDraft(emptyDraftFor(selectedDate));
@@ -287,6 +292,7 @@ export default function App() {
     setDraft({
       workDate: entry.workDate,
       workTime: source.workTime,
+      kind: source.kind,
       title: source.title,
       category: source.category,
       status: source.status,
@@ -315,6 +321,7 @@ export default function App() {
       await persistUpdate(realId, {
         workDate: source.workDate,
         workTime: source.workTime,
+        kind: source.kind,
         title: source.title,
         category: source.category,
         status,
@@ -345,7 +352,7 @@ export default function App() {
       } else {
         setEntries((current) => [...current, ...samples]);
       }
-      setNotice("샘플 업무 3건을 넣고 저장했습니다. 실제 사용 전 자유롭게 수정하거나 삭제하세요.");
+      setNotice("샘플 일정 3건을 넣고 저장했습니다. 실제 사용 전 자유롭게 수정하거나 삭제하세요.");
     } catch (error) {
       setNotice(error instanceof Error ? `샘플 저장 실패: ${error.message}` : "샘플 저장에 실패했습니다.");
     } finally {
@@ -357,7 +364,7 @@ export default function App() {
     const realId = entry.id.split("::")[0];
     if (pendingDeleteId !== realId) {
       setPendingDeleteId(realId);
-      setNotice("삭제하려면 같은 업무의 '삭제 확인' 버튼을 한 번 더 눌러 주세요.");
+      setNotice("삭제하려면 같은 일정의 '삭제 확인' 버튼을 한 번 더 눌러 주세요.");
       return;
     }
     setSaving(true);
@@ -368,7 +375,7 @@ export default function App() {
         setEditingId(null);
         setDraft(emptyDraftFor(selectedDate));
       }
-      setNotice("업무를 삭제하고 저장했습니다.");
+      setNotice("일정을 삭제하고 저장했습니다.");
     } catch (error) {
       setNotice(error instanceof Error ? `삭제 실패: ${error.message}` : "삭제에 실패했습니다.");
     } finally {
@@ -401,7 +408,7 @@ export default function App() {
           <div>
             <p className="text-sm font-semibold text-blue-700">Vercel + Supabase 업그레이드</p>
             <h1 className="mt-1 text-3xl font-bold tracking-tight">{APP_TITLE}</h1>
-            <p className="mt-2 text-sm text-slate-600">달력에서 날짜를 누르고, 총무회계 업무를 바로 기록하세요.</p>
+            <p className="mt-2 text-sm text-slate-600">달력에서 날짜를 누르고, 업무와 개인 일정을 함께 기록하세요.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button className="btn-secondary" onClick={useSamples}>
@@ -418,10 +425,10 @@ export default function App() {
       </header>
 
       <section className="mx-auto grid max-w-7xl gap-4 px-4 py-5 md:grid-cols-4">
-        <Metric label="오늘 할 일" value={`${dashboard.today}건`} />
-        <Metric label="이번주 할 일" value={`${dashboard.week}건`} />
-        <Metric label="이달 할 일" value={`${dashboard.month}건`} />
-        <Metric label="지연 업무" value={`${dashboard.overdue}건`} tone={dashboard.overdue ? "danger" : "default"} />
+        <Metric label="오늘 일정" value={`${dashboard.today}건`} />
+        <Metric label="이번주 일정" value={`${dashboard.week}건`} />
+        <Metric label="이달 일정" value={`${dashboard.month}건`} />
+        <Metric label="지연 일정" value={`${dashboard.overdue}건`} tone={dashboard.overdue ? "danger" : "default"} />
       </section>
 
       <section className="mx-auto max-w-7xl px-4">
@@ -431,7 +438,7 @@ export default function App() {
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
           <Bell size={17} className="text-blue-700" />
-          <span>시간이 있는 업무는 입력 시간 1시간 전에 알림을 확인합니다.</span>
+          <span>시간이 있는 일정은 입력 시간 1시간 전에 알림을 확인합니다.</span>
           {notificationPermission !== "granted" && notificationPermission !== "unsupported" && (
             <button className="btn-secondary py-1.5" onClick={() => void requestNotificationPermission()}>
               알림 권한 켜기
@@ -447,18 +454,19 @@ export default function App() {
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-bold">오늘 챙길 업무</h2>
-              <p className="text-sm text-slate-500">지연 업무와 이번 주 미완료 업무를 먼저 보여줍니다.</p>
+              <p className="text-sm text-slate-500">지연 일정과 이번 주 미완료 일정을 먼저 보여줍니다.</p>
             </div>
             <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-600">{focusEntries.length}건</span>
           </div>
           {focusEntries.length === 0 ? (
-            <p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">급하게 챙길 업무가 없습니다.</p>
+            <p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">급하게 챙길 일정이 없습니다.</p>
           ) : (
             <div className="grid gap-2 md:grid-cols-2">
               {focusEntries.map((entry) => (
                 <button key={entry.id} className="quick-entry" onClick={() => openEntryDate(entry)}>
                   <span className="font-semibold">{entry.workDate}</span>
                   <span className="truncate">{entry.workTime ? `${entry.workTime} · ${entry.title}` : entry.title}</span>
+                  <span className={`rounded-full border px-2 py-0.5 text-xs ${KIND_COLORS[entry.kind]}`}>{entry.kind}</span>
                   <span className={`rounded-full border px-2 py-0.5 text-xs ${STATUS_COLORS[entry.status]}`}>{entry.status}</span>
                 </button>
               ))}
@@ -500,7 +508,7 @@ export default function App() {
                   <span className="mt-2 space-y-1">
                     {dayEntries.slice(0, 3).map((entry) => (
                       <span key={entry.id} className={`block truncate rounded border-l-4 px-1.5 py-1 text-left text-[11px] ${STATUS_COLORS[entry.status]}`}>
-                        {entry.workTime ? `${entry.workTime} ${entry.title}` : entry.title}
+                        {entry.workTime ? `${entry.workTime} ${entry.kind} · ${entry.title}` : `${entry.kind} · ${entry.title}`}
                       </span>
                     ))}
                   </span>
@@ -515,7 +523,7 @@ export default function App() {
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-xl font-bold">{formatKoreanDate(selectedDate)}</h2>
-                <p className="text-sm text-slate-500">선택한 날짜의 업무를 바로 입력합니다.</p>
+                <p className="text-sm text-slate-500">선택한 날짜의 업무와 개인 일정을 바로 입력합니다.</p>
               </div>
               {editingId && (
                 <button className="btn-secondary" onClick={() => { setEditingId(null); setDraft(emptyDraftFor(selectedDate)); }}>
@@ -527,9 +535,9 @@ export default function App() {
           </div>
 
           <div className="panel">
-            <h2 className="mb-3 text-lg font-bold">선택 날짜 업무</h2>
+            <h2 className="mb-3 text-lg font-bold">선택 날짜 일정</h2>
             <div className="space-y-3">
-              {selectedEntries.length === 0 && <p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">이 날짜에는 아직 업무가 없습니다.</p>}
+              {selectedEntries.length === 0 && <p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">이 날짜에는 아직 일정이 없습니다.</p>}
               {selectedEntries.map((entry) => (
                 <EntryCard
                   key={entry.id}
@@ -549,16 +557,19 @@ export default function App() {
         <div className="panel">
           <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <h2 className="text-xl font-bold">전체 업무 목록</h2>
-              <p className="text-sm text-slate-500">검색, 상태, 업무유형으로 필요한 기록을 빠르게 찾습니다.</p>
+              <h2 className="text-xl font-bold">전체 일정 목록</h2>
+              <p className="text-sm text-slate-500">검색, 종류, 상태, 업무유형으로 필요한 기록을 빠르게 찾습니다.</p>
             </div>
             <div className="flex flex-col gap-2 md:flex-row">
               <label className="relative">
                 <Search className="absolute left-3 top-2.5 text-slate-400" size={17} />
-                <input className="input w-full pl-9 md:w-64" placeholder="업무명, 거래처, 메모 검색" value={query} onChange={(event) => setQuery(event.target.value)} />
+                <input className="input w-full pl-9 md:w-64" placeholder="제목, 거래처, 메모 검색" value={query} onChange={(event) => setQuery(event.target.value)} />
               </label>
               <select className="input" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
                 {["전체", ...STATUSES].map((status) => <option key={status}>{status}</option>)}
+              </select>
+              <select className="input" value={kindFilter} onChange={(event) => setKindFilter(event.target.value)}>
+                {["전체", ...ENTRY_KINDS].map((kind) => <option key={kind}>{kind}</option>)}
               </select>
               <select className="input" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
                 {["전체", ...CATEGORIES].map((category) => <option key={category}>{category}</option>)}
@@ -569,7 +580,7 @@ export default function App() {
             <table className="min-w-full text-left text-sm">
               <thead className="border-b bg-slate-50 text-slate-600">
                 <tr>
-                  {["날짜", "시간", "업무명", "유형", "상태", "중요도", "금액", "거래처", "반복", "알림", "메모", "작업"].map((header) => (
+                  {["종류", "날짜", "시간", "제목", "유형", "상태", "중요도", "금액", "거래처", "반복", "알림", "메모", "작업"].map((header) => (
                     <th key={header} className="px-3 py-2 font-semibold">{header}</th>
                   ))}
                 </tr>
@@ -577,6 +588,9 @@ export default function App() {
               <tbody>
                 {filteredEntries.map((entry) => (
                   <tr key={entry.id} className="border-b last:border-0">
+                    <td className="px-3 py-2">
+                      <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${KIND_COLORS[entry.kind]}`}>{entry.kind}</span>
+                    </td>
                     <td className="px-3 py-2">{entry.workDate}</td>
                     <td className="px-3 py-2">{entry.workTime || "-"}</td>
                     <td className="px-3 py-2 font-medium">{entry.title}</td>
@@ -604,7 +618,7 @@ export default function App() {
                 ))}
               </tbody>
             </table>
-            {!filteredEntries.length && <p className="p-6 text-center text-sm text-slate-500">조건에 맞는 업무가 없습니다.</p>}
+            {!filteredEntries.length && <p className="p-6 text-center text-sm text-slate-500">조건에 맞는 일정이 없습니다.</p>}
           </div>
         </div>
       </section>
@@ -651,8 +665,25 @@ function EntryForm({
   return (
     <div className="space-y-3">
       <label className="field">
-        <span>업무명</span>
-        <input className="input" value={draft.title} onChange={(event) => update("title", event.target.value)} placeholder="예: 세금계산서 발행 확인" />
+        <span>일정 종류</span>
+        <span className="grid grid-cols-2 gap-2">
+          {ENTRY_KINDS.map((kind) => (
+            <button
+              key={kind}
+              type="button"
+              className={`rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                draft.kind === kind ? KIND_COLORS[kind] : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+              onClick={() => update("kind", kind)}
+            >
+              {kind}
+            </button>
+          ))}
+        </span>
+      </label>
+      <label className="field">
+        <span>제목</span>
+        <input className="input" value={draft.title} onChange={(event) => update("title", event.target.value)} placeholder={draft.kind === "개인" ? "예: 병원 예약" : "예: 세금계산서 발행 확인"} />
       </label>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="field">
@@ -725,7 +756,7 @@ function EntryForm({
       </label>
       <button className="btn-primary w-full justify-center disabled:cursor-not-allowed disabled:bg-slate-400" onClick={onSubmit} disabled={saving}>
         {editing ? <Save size={18} /> : <Plus size={18} />}
-        {saving ? "저장 중..." : editing ? "수정 저장" : "이 날짜에 업무 추가"}
+        {saving ? "저장 중..." : editing ? "수정 저장" : "이 날짜에 일정 추가"}
       </button>
     </div>
   );
@@ -749,6 +780,7 @@ function EntryCard({
     <article className="rounded-lg border border-slate-200 bg-white p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
+          <span className={`mb-2 inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${KIND_COLORS[entry.kind]}`}>{entry.kind}</span>
           <h3 className="font-bold">{entry.workTime ? `${entry.workTime} · ${entry.title}` : entry.title}</h3>
           <p className="mt-1 text-sm text-slate-500">
             {entry.category} · {entry.priority} · {entry.repeatMonthly === "예" ? "매월 반복" : "일회성"}

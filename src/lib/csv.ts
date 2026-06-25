@@ -1,10 +1,11 @@
 import type { WorkEntry } from "../types";
 import { dateKey } from "./date";
 
-const HEADERS = ["업무일자", "시간", "업무명", "업무유형", "진행상태", "중요도", "금액", "거래처", "매월반복", "반복일", "알림방식", "메모"];
+const HEADERS = ["일정종류", "업무일자", "시간", "제목", "업무유형", "진행상태", "중요도", "금액", "거래처", "매월반복", "반복일", "알림방식", "메모"];
 
 export function downloadCsv(entries: WorkEntry[]) {
   const rows = entries.map((entry) => [
+    entry.kind,
     entry.workDate,
     entry.workTime,
     entry.title,

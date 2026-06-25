@@ -1,4 +1,4 @@
-import type { AlarmMode } from "../types";
+import type { AlarmMode, EntryKind } from "../types";
 
 const META_PREFIX = "\n\n<!--work-journal-meta:";
 const META_SUFFIX = "-->";
@@ -6,11 +6,13 @@ const META_SUFFIX = "-->";
 type EntryMeta = {
   workTime: string;
   alarmMode: AlarmMode;
+  kind: EntryKind;
 };
 
 const defaultMeta: EntryMeta = {
   workTime: "",
   alarmMode: "없음",
+  kind: "업무",
 };
 
 export function encodeMemoWithMeta(memo: string, meta: EntryMeta) {
@@ -18,6 +20,7 @@ export function encodeMemoWithMeta(memo: string, meta: EntryMeta) {
   const payload = JSON.stringify({
     workTime: meta.workTime,
     alarmMode: meta.alarmMode,
+    kind: meta.kind,
   });
   return `${cleanMemo}${META_PREFIX}${payload}${META_SUFFIX}`;
 }
@@ -40,6 +43,7 @@ export function decodeMemoWithMeta(value: string): { memo: string } & EntryMeta 
       memo: value.slice(0, index).trimEnd(),
       workTime: typeof parsed.workTime === "string" ? parsed.workTime : "",
       alarmMode: parsed.alarmMode === "소리" || parsed.alarmMode === "진동" ? parsed.alarmMode : "없음",
+      kind: parsed.kind === "개인" ? "개인" : "업무",
     };
   } catch {
     return { memo: value.slice(0, index).trimEnd(), ...defaultMeta };

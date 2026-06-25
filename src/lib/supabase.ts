@@ -22,6 +22,7 @@ export function toDb(entry: EntryDraft | WorkEntry) {
     memo: encodeMemoWithMeta(entry.memo, {
       workTime: entry.workTime,
       alarmMode: entry.alarmMode,
+      kind: entry.kind,
     }),
   };
 }
@@ -32,6 +33,7 @@ export function fromDb(row: Record<string, unknown>): WorkEntry {
     id: String(row.id),
     workDate: String(row.work_date),
     workTime: decodedMemo.workTime,
+    kind: decodedMemo.kind,
     title: String(row.title ?? ""),
     category: String(row.category ?? "기타"),
     status: String(row.status ?? "예정") as WorkEntry["status"],

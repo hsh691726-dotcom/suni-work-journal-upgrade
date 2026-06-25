@@ -1,4 +1,4 @@
-import type { AlarmMode, EntryDraft, Priority, RepeatMonthly, TaskStatus, WorkEntry } from "./types";
+import type { AlarmMode, EntryDraft, EntryKind, Priority, RepeatMonthly, TaskStatus, WorkEntry } from "./types";
 import { dateKey, parseDateKey } from "./lib/date";
 
 export const APP_TITLE = "경영지원팀 업무일지";
@@ -9,12 +9,18 @@ export const STATUSES: TaskStatus[] = ["예정", "진행중", "완료", "보류"
 export const PRIORITIES: Priority[] = ["높음", "보통", "낮음"];
 export const REPEAT_FLAGS: RepeatMonthly[] = ["아니오", "예"];
 export const ALARM_MODES: AlarmMode[] = ["없음", "소리", "진동"];
+export const ENTRY_KINDS: EntryKind[] = ["업무", "개인"];
 
 export const STATUS_COLORS: Record<TaskStatus, string> = {
   예정: "border-blue-500 bg-blue-50 text-blue-700",
   진행중: "border-amber-500 bg-amber-50 text-amber-700",
   완료: "border-emerald-500 bg-emerald-50 text-emerald-700",
   보류: "border-slate-400 bg-slate-50 text-slate-700",
+};
+
+export const KIND_COLORS: Record<EntryKind, string> = {
+  업무: "border-blue-500 bg-blue-50 text-blue-700",
+  개인: "border-rose-500 bg-rose-50 text-rose-700",
 };
 
 export function todayKey() {
@@ -25,6 +31,7 @@ export function makeEmptyDraft(date = todayKey()): EntryDraft {
   return {
     workDate: date,
     workTime: "",
+    kind: "업무",
     title: "",
     category: "회계",
     status: "예정",
@@ -49,6 +56,7 @@ export function sampleEntries(): WorkEntry[] {
       id: crypto.randomUUID(),
       workDate: today,
       workTime: "09:30",
+      kind: "업무",
       title: "오늘 결제 요청 검토",
       category: "결제",
       status: "예정",
@@ -66,6 +74,7 @@ export function sampleEntries(): WorkEntry[] {
       id: crypto.randomUUID(),
       workDate: day10,
       workTime: "10:00",
+      kind: "업무",
       title: "원천세 신고/납부 확인",
       category: "세무",
       status: "예정",
@@ -83,6 +92,7 @@ export function sampleEntries(): WorkEntry[] {
       id: crypto.randomUUID(),
       workDate: day25,
       workTime: "16:00",
+      kind: "업무",
       title: "월마감 자료 정리",
       category: "회계",
       status: "진행중",
