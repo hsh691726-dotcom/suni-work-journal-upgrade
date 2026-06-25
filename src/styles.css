@@ -40,7 +40,30 @@
     @apply border border-red-200 bg-red-50 text-red-700 hover:bg-red-100;
   }
 
+  .btn-mini,
+  .btn-mini-danger {
+    @apply inline-flex items-center rounded-md px-2 py-1 text-xs font-semibold transition;
+  }
+
+  .btn-mini {
+    @apply border border-slate-200 bg-white text-slate-700 hover:bg-slate-50;
+  }
+
+  .btn-mini-danger {
+    @apply border border-red-200 bg-red-50 text-red-700 hover:bg-red-100;
+  }
+
+  .quick-entry {
+    @apply grid grid-cols-[auto_1fr_auto] items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm transition hover:border-blue-300 hover:bg-blue-50;
+  }
+
   .calendar-cell {
     @apply flex min-h-28 flex-col rounded-lg border border-slate-200 p-2 text-left text-sm transition hover:border-blue-300 hover:bg-blue-50;
+  }
+
+  @media (max-width: 640px) {
+    .calendar-cell {
+      @apply min-h-20 p-1.5 text-xs;
+    }
   }
 }

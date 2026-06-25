@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
-  CheckCircle2,
   Download,
   Edit3,
   Plus,
@@ -54,6 +53,8 @@ export default function App() {
   const [categoryFilter, setCategoryFilter] = useState("전체");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const storageMode = isSupabaseConfigured ? "Supabase" : "이 브라우저";
 
@@ -96,14 +97,16 @@ export default function App() {
 
   const filteredEntries = useMemo(() => {
     const text = query.trim().toLowerCase();
-    return entries.filter((entry) => {
-      const matchesText =
-        !text ||
-        [entry.title, entry.category, entry.vendor, entry.memo, entry.status, entry.priority].join(" ").toLowerCase().includes(text);
-      const matchesStatus = statusFilter === "전체" || entry.status === statusFilter;
-      const matchesCategory = categoryFilter === "전체" || entry.category === categoryFilter;
-      return matchesText && matchesStatus && matchesCategory;
-    });
+    return entries
+      .filter((entry) => {
+        const matchesText =
+          !text ||
+          [entry.title, entry.category, entry.vendor, entry.memo, entry.status, entry.priority].join(" ").toLowerCase().includes(text);
+        const matchesStatus = statusFilter === "전체" || entry.status === statusFilter;
+        const matchesCategory = categoryFilter === "전체" || entry.category === categoryFilter;
+        return matchesText && matchesStatus && matchesCategory;
+      })
+      .sort((a, b) => a.workDate.localeCompare(b.workDate) || a.title.localeCompare(b.title, "ko"));
   }, [entries, query, statusFilter, categoryFilter]);
 
   const dashboard = useMemo(() => {
@@ -113,8 +116,17 @@ export default function App() {
       today: entriesForDate(entries, today).filter((entry) => entry.status !== "완료").length,
       week: entries.filter((entry) => isThisWeek(entry.workDate) && entry.status !== "완료").length,
       month: entries.filter((entry) => entry.workDate.startsWith(currentMonth) && entry.status !== "완료").length,
+      overdue: entries.filter((entry) => entry.workDate < today && entry.status !== "완료").length,
       done: entries.filter((entry) => entry.workDate.startsWith(currentMonth) && entry.status === "완료").length,
     };
+  }, [entries]);
+
+  const focusEntries = useMemo(() => {
+    const today = todayKey();
+    return materializeEntriesForMonth(entries, parseDateKey(today))
+      .filter((entry) => entry.status !== "완료" && (entry.workDate <= today || isThisWeek(entry.workDate)))
+      .sort((a, b) => a.workDate.localeCompare(b.workDate) || a.title.localeCompare(b.title, "ko"))
+      .slice(0, 8);
   }, [entries]);
 
   async function persistAdd(entry: WorkEntry) {
@@ -155,6 +167,7 @@ export default function App() {
       setNotice("업무명을 먼저 입력해 주세요.");
       return;
     }
+    setSaving(true);
     try {
       if (editingId) {
         await persistUpdate(editingId, draft);
@@ -167,6 +180,8 @@ export default function App() {
       setDraft(emptyDraftFor(selectedDate));
     } catch (error) {
       setNotice(error instanceof Error ? `저장 실패: ${error.message}` : "저장에 실패했습니다.");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -188,29 +203,78 @@ export default function App() {
     });
   }
 
+  function openEntryDate(entry: WorkEntry) {
+    const target = parseDateKey(entry.workDate);
+    setSelectedDate(entry.workDate);
+    setAnchor(new Date(target.getFullYear(), target.getMonth(), 1));
+  }
+
   async function updateStatus(entry: WorkEntry, status: WorkEntry["status"]) {
     const realId = entry.id.split("::")[0];
     const source = entries.find((item) => item.id === realId);
     if (!source) return;
-    await persistUpdate(realId, {
-      workDate: source.workDate,
-      title: source.title,
-      category: source.category,
-      status,
-      priority: source.priority,
-      amount: source.amount,
-      vendor: source.vendor,
-      repeatMonthly: source.repeatMonthly,
-      repeatDay: source.repeatDay,
-      memo: source.memo,
-    });
-    setNotice("상태를 변경하고 저장했습니다.");
+    setSaving(true);
+    try {
+      await persistUpdate(realId, {
+        workDate: source.workDate,
+        title: source.title,
+        category: source.category,
+        status,
+        priority: source.priority,
+        amount: source.amount,
+        vendor: source.vendor,
+        repeatMonthly: source.repeatMonthly,
+        repeatDay: source.repeatDay,
+        memo: source.memo,
+      });
+      setNotice("상태를 변경하고 저장했습니다.");
+    } catch (error) {
+      setNotice(error instanceof Error ? `상태 변경 실패: ${error.message}` : "상태 변경에 실패했습니다.");
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function useSamples() {
+  async function useSamples() {
     const samples = sampleEntries();
-    setEntries(samples);
-    setNotice("샘플 업무 3건을 넣었습니다. 실제 사용 전 자유롭게 수정하거나 삭제하세요.");
+    setSaving(true);
+    try {
+      if (supabase) {
+        for (const sample of samples) {
+          await persistAdd(sample);
+        }
+      } else {
+        setEntries((current) => [...current, ...samples]);
+      }
+      setNotice("샘플 업무 3건을 넣고 저장했습니다. 실제 사용 전 자유롭게 수정하거나 삭제하세요.");
+    } catch (error) {
+      setNotice(error instanceof Error ? `샘플 저장 실패: ${error.message}` : "샘플 저장에 실패했습니다.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function confirmDelete(entry: WorkEntry) {
+    const realId = entry.id.split("::")[0];
+    if (pendingDeleteId !== realId) {
+      setPendingDeleteId(realId);
+      setNotice("삭제하려면 같은 업무의 '삭제 확인' 버튼을 한 번 더 눌러 주세요.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await persistDelete(realId);
+      setPendingDeleteId(null);
+      if (editingId === realId) {
+        setEditingId(null);
+        setDraft(emptyDraftFor(selectedDate));
+      }
+      setNotice("업무를 삭제하고 저장했습니다.");
+    } catch (error) {
+      setNotice(error instanceof Error ? `삭제 실패: ${error.message}` : "삭제에 실패했습니다.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   const days = monthMatrix(anchor);
@@ -242,13 +306,38 @@ export default function App() {
         <Metric label="오늘 할 일" value={`${dashboard.today}건`} />
         <Metric label="이번주 할 일" value={`${dashboard.week}건`} />
         <Metric label="이달 할 일" value={`${dashboard.month}건`} />
-        <Metric label="이달 완료" value={`${dashboard.done}건`} />
+        <Metric label="지연 업무" value={`${dashboard.overdue}건`} tone={dashboard.overdue ? "danger" : "default"} />
       </section>
 
       <section className="mx-auto max-w-7xl px-4">
         <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-          저장 위치: <strong>{storageMode}</strong>. Supabase 값을 넣기 전에는 이 브라우저에 저장되고, Supabase 연결 후에는 서버 DB에 저장됩니다.
+          저장 위치: <strong>{storageMode}</strong>. {saving ? "저장 중입니다..." : "저장 후 새로고침해도 데이터가 유지됩니다."}
           {notice && <span className="ml-2 text-blue-700">{notice}</span>}
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-7xl px-4 pt-5">
+        <div className="panel">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold">오늘 챙길 업무</h2>
+              <p className="text-sm text-slate-500">지연 업무와 이번 주 미완료 업무를 먼저 보여줍니다.</p>
+            </div>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-600">{focusEntries.length}건</span>
+          </div>
+          {focusEntries.length === 0 ? (
+            <p className="rounded-lg bg-slate-50 p-4 text-sm text-slate-500">급하게 챙길 업무가 없습니다.</p>
+          ) : (
+            <div className="grid gap-2 md:grid-cols-2">
+              {focusEntries.map((entry) => (
+                <button key={entry.id} className="quick-entry" onClick={() => openEntryDate(entry)}>
+                  <span className="font-semibold">{entry.workDate}</span>
+                  <span className="truncate">{entry.title}</span>
+                  <span className={`rounded-full border px-2 py-0.5 text-xs ${STATUS_COLORS[entry.status]}`}>{entry.status}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
@@ -308,7 +397,7 @@ export default function App() {
                 </button>
               )}
             </div>
-            <EntryForm draft={draft} setDraft={setDraft} onSubmit={handleSubmit} editing={Boolean(editingId)} />
+            <EntryForm draft={draft} setDraft={setDraft} onSubmit={handleSubmit} editing={Boolean(editingId)} saving={saving} />
           </div>
 
           <div className="panel">
@@ -320,7 +409,8 @@ export default function App() {
                   key={entry.id}
                   entry={entry}
                   onEdit={() => startEdit(entry)}
-                  onDelete={() => void persistDelete(entry.id.split("::")[0]).then(() => setNotice("업무를 삭제하고 저장했습니다."))}
+                  onDelete={() => void confirmDelete(entry)}
+                  deleting={pendingDeleteId === entry.id.split("::")[0]}
                   onStatus={(status) => void updateStatus(entry, status)}
                 />
               ))}
@@ -353,7 +443,7 @@ export default function App() {
             <table className="min-w-full text-left text-sm">
               <thead className="border-b bg-slate-50 text-slate-600">
                 <tr>
-                  {["날짜", "업무명", "유형", "상태", "중요도", "금액", "거래처", "반복", "메모"].map((header) => (
+                  {["날짜", "업무명", "유형", "상태", "중요도", "금액", "거래처", "반복", "메모", "작업"].map((header) => (
                     <th key={header} className="px-3 py-2 font-semibold">{header}</th>
                   ))}
                 </tr>
@@ -370,6 +460,18 @@ export default function App() {
                     <td className="px-3 py-2">{entry.vendor || "-"}</td>
                     <td className="px-3 py-2">{entry.repeatMonthly}</td>
                     <td className="max-w-xs truncate px-3 py-2">{entry.memo || "-"}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex min-w-52 flex-wrap gap-1.5">
+                        <button className="btn-mini" onClick={() => openEntryDate(entry)}>열기</button>
+                        <button className="btn-mini" onClick={() => { openEntryDate(entry); startEdit(entry); }}>수정</button>
+                        {entry.status !== "완료" && (
+                          <button className="btn-mini" onClick={() => void updateStatus(entry, "완료")}>완료</button>
+                        )}
+                        <button className="btn-mini-danger" onClick={() => void confirmDelete(entry)}>
+                          {pendingDeleteId === entry.id.split("::")[0] ? "삭제 확인" : "삭제"}
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -382,10 +484,10 @@ export default function App() {
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "danger" }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-soft">
-      <p className="text-sm text-slate-500">{label}</p>
+    <div className={`rounded-lg border p-4 shadow-soft ${tone === "danger" ? "border-red-200 bg-red-50" : "border-slate-200 bg-white"}`}>
+      <p className={`text-sm ${tone === "danger" ? "text-red-700" : "text-slate-500"}`}>{label}</p>
       <p className="mt-2 text-3xl font-bold">{value}</p>
     </div>
   );
@@ -396,11 +498,13 @@ function EntryForm({
   setDraft,
   onSubmit,
   editing,
+  saving,
 }: {
   draft: EntryDraft;
   setDraft: (draft: EntryDraft) => void;
   onSubmit: () => void;
   editing: boolean;
+  saving: boolean;
 }) {
   const update = <K extends keyof EntryDraft>(key: K, value: EntryDraft[K]) => setDraft({ ...draft, [key]: value });
 
@@ -452,9 +556,9 @@ function EntryForm({
         <span>메모</span>
         <textarea className="input min-h-24" value={draft.memo} onChange={(event) => update("memo", event.target.value)} placeholder="증빙, 결제 방법, 확인할 내용을 적어주세요." />
       </label>
-      <button className="btn-primary w-full justify-center" onClick={onSubmit}>
+      <button className="btn-primary w-full justify-center disabled:cursor-not-allowed disabled:bg-slate-400" onClick={onSubmit} disabled={saving}>
         {editing ? <Save size={18} /> : <Plus size={18} />}
-        {editing ? "수정 저장" : "이 날짜에 업무 추가"}
+        {saving ? "저장 중..." : editing ? "수정 저장" : "이 날짜에 업무 추가"}
       </button>
     </div>
   );
@@ -465,11 +569,13 @@ function EntryCard({
   onEdit,
   onDelete,
   onStatus,
+  deleting,
 }: {
   entry: WorkEntry;
   onEdit: () => void;
   onDelete: () => void;
   onStatus: (status: WorkEntry["status"]) => void;
+  deleting: boolean;
 }) {
   const generated = entry.id.includes("::");
   return (
@@ -499,7 +605,7 @@ function EntryCard({
           <Edit3 size={16} /> 수정
         </button>
         <button className="btn-danger justify-center" onClick={onDelete}>
-          <Trash2 size={16} /> 삭제
+          <Trash2 size={16} /> {deleting ? "삭제 확인" : "삭제"}
         </button>
       </div>
     </article>
