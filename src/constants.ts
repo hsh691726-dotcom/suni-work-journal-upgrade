@@ -1,4 +1,5 @@
 import type { EntryDraft, Priority, RepeatMonthly, TaskStatus, WorkEntry } from "./types";
+import { dateKey, parseDateKey } from "./lib/date";
 
 export const APP_TITLE = "경영지원팀 업무일지";
 export const STORAGE_KEY = "suni-work-journal-upgrade";
@@ -16,7 +17,7 @@ export const STATUS_COLORS: Record<TaskStatus, string> = {
 };
 
 export function todayKey() {
-  return new Date().toISOString().slice(0, 10);
+  return dateKey(new Date());
 }
 
 export function makeEmptyDraft(date = todayKey()): EntryDraft {
@@ -37,9 +38,9 @@ export function makeEmptyDraft(date = todayKey()): EntryDraft {
 export function sampleEntries(): WorkEntry[] {
   const now = new Date().toISOString();
   const today = todayKey();
-  const current = new Date(today);
-  const day10 = new Date(current.getFullYear(), current.getMonth(), 10).toISOString().slice(0, 10);
-  const day25 = new Date(current.getFullYear(), current.getMonth(), 25).toISOString().slice(0, 10);
+  const current = parseDateKey(today);
+  const day10 = dateKey(new Date(current.getFullYear(), current.getMonth(), 10));
+  const day25 = dateKey(new Date(current.getFullYear(), current.getMonth(), 25));
   return [
     {
       id: crypto.randomUUID(),
