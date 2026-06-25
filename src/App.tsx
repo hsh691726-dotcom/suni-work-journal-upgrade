@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import {
   Bell,
   CalendarDays,
+  Clock,
   Download,
   Edit3,
   Plus,
@@ -633,7 +634,19 @@ function EntryForm({
   editing: boolean;
   saving: boolean;
 }) {
+  const timeInputRef = useRef<HTMLInputElement | null>(null);
   const update = <K extends keyof EntryDraft>(key: K, value: EntryDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
+  const openTimePicker = () => {
+    const input = timeInputRef.current;
+    if (!input) return;
+    input.focus();
+    const pickerInput = input as HTMLInputElement & { showPicker?: () => void };
+    if (pickerInput.showPicker) {
+      pickerInput.showPicker();
+    } else {
+      input.click();
+    }
+  };
 
   return (
     <div className="space-y-3">
@@ -648,7 +661,24 @@ function EntryForm({
         </label>
         <label className="field">
           <span>시간</span>
-          <input className="input" value={draft.workTime} onChange={(event) => update("workTime", event.target.value)} placeholder="예: 09:30" inputMode="numeric" maxLength={5} />
+          <span className="relative">
+            <input
+              ref={timeInputRef}
+              className="input pr-11"
+              type="time"
+              value={draft.workTime}
+              onChange={(event) => update("workTime", event.target.value)}
+            />
+            <button
+              type="button"
+              className="absolute right-2 top-1/2 inline-flex -translate-y-1/2 rounded-md p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-blue-700"
+              onClick={openTimePicker}
+              aria-label="시간 선택"
+              title="시간 선택"
+            >
+              <Clock size={18} />
+            </button>
+          </span>
         </label>
         <label className="field">
           <span>업무유형</span>
