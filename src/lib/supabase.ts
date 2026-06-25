@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import type { EntryDraft, WorkEntry } from "../types";
+import { decodeMemoWithMeta, encodeMemoWithMeta } from "./entryMeta";
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
@@ -18,14 +19,19 @@ export function toDb(entry: EntryDraft | WorkEntry) {
     vendor: entry.vendor,
     repeat_monthly: entry.repeatMonthly,
     repeat_day: entry.repeatDay,
-    memo: entry.memo,
+    memo: encodeMemoWithMeta(entry.memo, {
+      workTime: entry.workTime,
+      alarmMode: entry.alarmMode,
+    }),
   };
 }
 
 export function fromDb(row: Record<string, unknown>): WorkEntry {
+  const decodedMemo = decodeMemoWithMeta(String(row.memo ?? ""));
   return {
     id: String(row.id),
     workDate: String(row.work_date),
+    workTime: decodedMemo.workTime,
     title: String(row.title ?? ""),
     category: String(row.category ?? "기타"),
     status: String(row.status ?? "예정") as WorkEntry["status"],
@@ -34,7 +40,8 @@ export function fromDb(row: Record<string, unknown>): WorkEntry {
     vendor: String(row.vendor ?? ""),
     repeatMonthly: String(row.repeat_monthly ?? "아니오") as WorkEntry["repeatMonthly"],
     repeatDay: row.repeat_day ? Number(row.repeat_day) : null,
-    memo: String(row.memo ?? ""),
+    alarmMode: decodedMemo.alarmMode,
+    memo: decodedMemo.memo,
     createdAt: String(row.created_at ?? new Date().toISOString()),
     updatedAt: String(row.updated_at ?? new Date().toISOString()),
   };

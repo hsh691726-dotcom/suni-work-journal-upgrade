@@ -1,4 +1,4 @@
-import type { EntryDraft, Priority, RepeatMonthly, TaskStatus, WorkEntry } from "./types";
+import type { AlarmMode, EntryDraft, Priority, RepeatMonthly, TaskStatus, WorkEntry } from "./types";
 import { dateKey, parseDateKey } from "./lib/date";
 
 export const APP_TITLE = "경영지원팀 업무일지";
@@ -8,6 +8,7 @@ export const CATEGORIES = ["회계", "총무", "세무", "인사", "계약", "�
 export const STATUSES: TaskStatus[] = ["예정", "진행중", "완료", "보류"];
 export const PRIORITIES: Priority[] = ["높음", "보통", "낮음"];
 export const REPEAT_FLAGS: RepeatMonthly[] = ["아니오", "예"];
+export const ALARM_MODES: AlarmMode[] = ["없음", "소리", "진동"];
 
 export const STATUS_COLORS: Record<TaskStatus, string> = {
   예정: "border-blue-500 bg-blue-50 text-blue-700",
@@ -23,6 +24,7 @@ export function todayKey() {
 export function makeEmptyDraft(date = todayKey()): EntryDraft {
   return {
     workDate: date,
+    workTime: "",
     title: "",
     category: "회계",
     status: "예정",
@@ -31,6 +33,7 @@ export function makeEmptyDraft(date = todayKey()): EntryDraft {
     vendor: "",
     repeatMonthly: "아니오",
     repeatDay: null,
+    alarmMode: "없음",
     memo: "",
   };
 }
@@ -45,6 +48,7 @@ export function sampleEntries(): WorkEntry[] {
     {
       id: crypto.randomUUID(),
       workDate: today,
+      workTime: "09:30",
       title: "오늘 결제 요청 검토",
       category: "결제",
       status: "예정",
@@ -53,6 +57,7 @@ export function sampleEntries(): WorkEntry[] {
       vendor: "",
       repeatMonthly: "아니오",
       repeatDay: null,
+      alarmMode: "소리",
       memo: "증빙 누락 여부와 승인자를 같이 확인합니다.",
       createdAt: now,
       updatedAt: now,
@@ -60,6 +65,7 @@ export function sampleEntries(): WorkEntry[] {
     {
       id: crypto.randomUUID(),
       workDate: day10,
+      workTime: "10:00",
       title: "원천세 신고/납부 확인",
       category: "세무",
       status: "예정",
@@ -68,6 +74,7 @@ export function sampleEntries(): WorkEntry[] {
       vendor: "홈택스",
       repeatMonthly: "예",
       repeatDay: 10,
+      alarmMode: "소리",
       memo: "매월 10일 반복 업무입니다.",
       createdAt: now,
       updatedAt: now,
@@ -75,6 +82,7 @@ export function sampleEntries(): WorkEntry[] {
     {
       id: crypto.randomUUID(),
       workDate: day25,
+      workTime: "16:00",
       title: "월마감 자료 정리",
       category: "회계",
       status: "진행중",
@@ -83,6 +91,7 @@ export function sampleEntries(): WorkEntry[] {
       vendor: "",
       repeatMonthly: "예",
       repeatDay: 25,
+      alarmMode: "진동",
       memo: "거래처별 미수/미지급 내역을 확인합니다.",
       createdAt: now,
       updatedAt: now,

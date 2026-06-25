@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import {
+  Bell,
   CalendarDays,
   Download,
   Edit3,
@@ -11,6 +12,7 @@ import {
   Trash2,
 } from "lucide-react";
 import {
+  ALARM_MODES,
   APP_TITLE,
   CATEGORIES,
   PRIORITIES,
@@ -27,6 +29,8 @@ import { downloadCsv } from "./lib/csv";
 import { fromDb, isSupabaseConfigured, supabase, toDb } from "./lib/supabase";
 import type { EntryDraft, WorkEntry } from "./types";
 
+type NotificationPermissionState = "default" | "granted" | "denied" | "unsupported";
+
 function makeEntry(draft: EntryDraft): WorkEntry {
   const now = new Date().toISOString();
   return {
@@ -42,6 +46,46 @@ function emptyDraftFor(date: string): EntryDraft {
   return makeEmptyDraft(date);
 }
 
+function normalizeEntry(entry: WorkEntry): WorkEntry {
+  return {
+    ...entry,
+    workTime: entry.workTime ?? "",
+    alarmMode: entry.alarmMode ?? "없음",
+  };
+}
+
+function entryDateTime(entry: WorkEntry) {
+  if (!entry.workTime) return null;
+  const [hour, minute] = entry.workTime.split(":").map(Number);
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return null;
+  const date = parseDateKey(entry.workDate);
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour, minute);
+}
+
+function alarmKey(entry: WorkEntry) {
+  return `${entry.id}-${entry.workDate}-${entry.workTime}`;
+}
+
+function isValidWorkTime(value: string) {
+  return !value || /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
+function playAlarmSound() {
+  if (!window.AudioContext) return;
+  const context = new window.AudioContext();
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  oscillator.type = "sine";
+  oscillator.frequency.value = 880;
+  gain.gain.setValueAtTime(0.001, context.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.2, context.currentTime + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.8);
+  oscillator.connect(gain);
+  gain.connect(context.destination);
+  oscillator.start();
+  oscillator.stop(context.currentTime + 0.85);
+}
+
 export default function App() {
   const [entries, setEntries] = useState<WorkEntry[]>([]);
   const [selectedDate, setSelectedDate] = useState(todayKey());
@@ -55,6 +99,11 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermissionState>(() => {
+    if (!("Notification" in window)) return "unsupported";
+    return Notification.permission;
+  });
+  const [firedAlarmKeys, setFiredAlarmKeys] = useState<Set<string>>(() => new Set());
 
   const storageMode = isSupabaseConfigured ? "Supabase" : "이 브라우저";
 
@@ -65,12 +114,12 @@ export default function App() {
       if (error) {
         setNotice(`Supabase 불러오기 실패: ${error.message}`);
       } else {
-        setEntries((data ?? []).map(fromDb));
+        setEntries((data ?? []).map(fromDb).map(normalizeEntry));
         setNotice("Supabase에서 업무일지를 불러왔습니다.");
       }
     } else {
       const raw = localStorage.getItem(STORAGE_KEY);
-      setEntries(raw ? JSON.parse(raw) : []);
+      setEntries(raw ? JSON.parse(raw).map(normalizeEntry) : []);
       setNotice("Supabase 연결 전이라 이 브라우저에 임시 저장합니다.");
     }
     setLoading(false);
@@ -92,6 +141,43 @@ export default function App() {
     }
   }, [selectedDate, editingId]);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const now = new Date();
+      const nextFired = new Set(firedAlarmKeys);
+      let changed = false;
+
+      materializeEntriesForMonth(entries, now).forEach((entry) => {
+        if (entry.status === "완료" || entry.alarmMode === "없음" || !entry.workTime) return;
+        const scheduledAt = entryDateTime(entry);
+        if (!scheduledAt) return;
+        const reminderAt = new Date(scheduledAt.getTime() - 60 * 60 * 1000);
+        const key = alarmKey(entry);
+        if (now < reminderAt || now > scheduledAt || nextFired.has(key)) return;
+
+        if (entry.alarmMode === "소리") {
+          playAlarmSound();
+        }
+        if (entry.alarmMode === "진동" && "vibrate" in navigator) {
+          navigator.vibrate([350, 150, 350]);
+        }
+        if ("Notification" in window && Notification.permission === "granted") {
+          new Notification("경영지원팀 업무일지 알림", {
+            body: `${entry.workTime} ${entry.title} - 1시간 전입니다.`,
+          });
+        }
+        nextFired.add(key);
+        changed = true;
+      });
+
+      if (changed) {
+        setFiredAlarmKeys(nextFired);
+      }
+    }, 30000);
+
+    return () => window.clearInterval(timer);
+  }, [entries, firedAlarmKeys]);
+
   const monthEntries = useMemo(() => materializeEntriesForMonth(entries, anchor), [entries, anchor]);
   const selectedEntries = useMemo(() => entriesForDate(entries, selectedDate), [entries, selectedDate]);
 
@@ -101,12 +187,12 @@ export default function App() {
       .filter((entry) => {
         const matchesText =
           !text ||
-          [entry.title, entry.category, entry.vendor, entry.memo, entry.status, entry.priority].join(" ").toLowerCase().includes(text);
+          [entry.title, entry.category, entry.vendor, entry.memo, entry.status, entry.priority, entry.workTime, entry.alarmMode].join(" ").toLowerCase().includes(text);
         const matchesStatus = statusFilter === "전체" || entry.status === statusFilter;
         const matchesCategory = categoryFilter === "전체" || entry.category === categoryFilter;
         return matchesText && matchesStatus && matchesCategory;
       })
-      .sort((a, b) => a.workDate.localeCompare(b.workDate) || a.title.localeCompare(b.title, "ko"));
+      .sort((a, b) => a.workDate.localeCompare(b.workDate) || a.workTime.localeCompare(b.workTime) || a.title.localeCompare(b.title, "ko"));
   }, [entries, query, statusFilter, categoryFilter]);
 
   const dashboard = useMemo(() => {
@@ -125,7 +211,7 @@ export default function App() {
     const today = todayKey();
     return materializeEntriesForMonth(entries, parseDateKey(today))
       .filter((entry) => entry.status !== "완료" && (entry.workDate <= today || isThisWeek(entry.workDate)))
-      .sort((a, b) => a.workDate.localeCompare(b.workDate) || a.title.localeCompare(b.title, "ko"))
+      .sort((a, b) => a.workDate.localeCompare(b.workDate) || a.workTime.localeCompare(b.workTime) || a.title.localeCompare(b.title, "ko"))
       .slice(0, 8);
   }, [entries]);
 
@@ -133,7 +219,7 @@ export default function App() {
     if (supabase) {
       const { data, error } = await supabase.from("work_entries").insert(toDb(entry)).select("*").single();
       if (error) throw error;
-      setEntries((current) => [...current, fromDb(data)]);
+      setEntries((current) => [...current, normalizeEntry(fromDb(data))]);
     } else {
       setEntries((current) => [...current, entry]);
     }
@@ -148,7 +234,7 @@ export default function App() {
     if (supabase) {
       const { data, error } = await supabase.from("work_entries").update(toDb(nextValues)).eq("id", id).select("*").single();
       if (error) throw error;
-      setEntries((current) => current.map((entry) => (entry.id === id ? fromDb(data) : entry)));
+      setEntries((current) => current.map((entry) => (entry.id === id ? normalizeEntry(fromDb(data)) : entry)));
     } else {
       setEntries((current) => current.map((entry) => (entry.id === id ? { ...entry, ...nextValues } : entry)));
     }
@@ -165,6 +251,14 @@ export default function App() {
   async function handleSubmit() {
     if (!draft.title.trim()) {
       setNotice("업무명을 먼저 입력해 주세요.");
+      return;
+    }
+    if (!isValidWorkTime(draft.workTime)) {
+      setNotice("시간은 09:30처럼 24시간 형식으로 입력해 주세요.");
+      return;
+    }
+    if (draft.alarmMode !== "없음" && !draft.workTime) {
+      setNotice("알림을 사용하려면 시간을 먼저 입력해 주세요.");
       return;
     }
     setSaving(true);
@@ -191,6 +285,7 @@ export default function App() {
     setEditingId(realId);
     setDraft({
       workDate: entry.workDate,
+      workTime: source.workTime,
       title: source.title,
       category: source.category,
       status: source.status,
@@ -199,6 +294,7 @@ export default function App() {
       vendor: source.vendor,
       repeatMonthly: source.repeatMonthly,
       repeatDay: source.repeatDay,
+      alarmMode: source.alarmMode,
       memo: source.memo,
     });
   }
@@ -217,6 +313,7 @@ export default function App() {
     try {
       await persistUpdate(realId, {
         workDate: source.workDate,
+        workTime: source.workTime,
         title: source.title,
         category: source.category,
         status,
@@ -225,6 +322,7 @@ export default function App() {
         vendor: source.vendor,
         repeatMonthly: source.repeatMonthly,
         repeatDay: source.repeatDay,
+        alarmMode: source.alarmMode,
         memo: source.memo,
       });
       setNotice("상태를 변경하고 저장했습니다.");
@@ -277,6 +375,22 @@ export default function App() {
     }
   }
 
+  async function requestNotificationPermission() {
+    if (!("Notification" in window)) {
+      setNotificationPermission("unsupported");
+      setNotice("이 브라우저는 알림 기능을 지원하지 않습니다.");
+      return;
+    }
+
+    const permission = await Notification.requestPermission();
+    setNotificationPermission(permission);
+    setNotice(
+      permission === "granted"
+        ? "알림 권한이 켜졌습니다. 앱을 열어두면 입력 시간 1시간 전에 알림을 받을 수 있습니다."
+        : "알림 권한이 꺼져 있습니다. 브라우저 설정에서 다시 켤 수 있습니다.",
+    );
+  }
+
   const days = monthMatrix(anchor);
 
   return (
@@ -314,6 +428,17 @@ export default function App() {
           저장 위치: <strong>{storageMode}</strong>. {saving ? "저장 중입니다..." : "저장 후 새로고침해도 데이터가 유지됩니다."}
           {notice && <span className="ml-2 text-blue-700">{notice}</span>}
         </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+          <Bell size={17} className="text-blue-700" />
+          <span>시간이 있는 업무는 입력 시간 1시간 전에 알림을 확인합니다.</span>
+          {notificationPermission !== "granted" && notificationPermission !== "unsupported" && (
+            <button className="btn-secondary py-1.5" onClick={() => void requestNotificationPermission()}>
+              알림 권한 켜기
+            </button>
+          )}
+          {notificationPermission === "granted" && <span className="font-semibold text-emerald-700">알림 권한 켜짐</span>}
+          {notificationPermission === "unsupported" && <span className="font-semibold text-slate-500">이 브라우저는 알림 미지원</span>}
+        </div>
       </section>
 
       <section className="mx-auto max-w-7xl px-4 pt-5">
@@ -332,7 +457,7 @@ export default function App() {
               {focusEntries.map((entry) => (
                 <button key={entry.id} className="quick-entry" onClick={() => openEntryDate(entry)}>
                   <span className="font-semibold">{entry.workDate}</span>
-                  <span className="truncate">{entry.title}</span>
+                  <span className="truncate">{entry.workTime ? `${entry.workTime} · ${entry.title}` : entry.title}</span>
                   <span className={`rounded-full border px-2 py-0.5 text-xs ${STATUS_COLORS[entry.status]}`}>{entry.status}</span>
                 </button>
               ))}
@@ -374,7 +499,7 @@ export default function App() {
                   <span className="mt-2 space-y-1">
                     {dayEntries.slice(0, 3).map((entry) => (
                       <span key={entry.id} className={`block truncate rounded border-l-4 px-1.5 py-1 text-left text-[11px] ${STATUS_COLORS[entry.status]}`}>
-                        {entry.title}
+                        {entry.workTime ? `${entry.workTime} ${entry.title}` : entry.title}
                       </span>
                     ))}
                   </span>
@@ -443,7 +568,7 @@ export default function App() {
             <table className="min-w-full text-left text-sm">
               <thead className="border-b bg-slate-50 text-slate-600">
                 <tr>
-                  {["날짜", "업무명", "유형", "상태", "중요도", "금액", "거래처", "반복", "메모", "작업"].map((header) => (
+                  {["날짜", "시간", "업무명", "유형", "상태", "중요도", "금액", "거래처", "반복", "알림", "메모", "작업"].map((header) => (
                     <th key={header} className="px-3 py-2 font-semibold">{header}</th>
                   ))}
                 </tr>
@@ -452,6 +577,7 @@ export default function App() {
                 {filteredEntries.map((entry) => (
                   <tr key={entry.id} className="border-b last:border-0">
                     <td className="px-3 py-2">{entry.workDate}</td>
+                    <td className="px-3 py-2">{entry.workTime || "-"}</td>
                     <td className="px-3 py-2 font-medium">{entry.title}</td>
                     <td className="px-3 py-2">{entry.category}</td>
                     <td className="px-3 py-2">{entry.status}</td>
@@ -459,6 +585,7 @@ export default function App() {
                     <td className="px-3 py-2">{entry.amount ? `${entry.amount.toLocaleString()}원` : "-"}</td>
                     <td className="px-3 py-2">{entry.vendor || "-"}</td>
                     <td className="px-3 py-2">{entry.repeatMonthly}</td>
+                    <td className="px-3 py-2">{entry.alarmMode}</td>
                     <td className="max-w-xs truncate px-3 py-2">{entry.memo || "-"}</td>
                     <td className="px-3 py-2">
                       <div className="flex min-w-52 flex-wrap gap-1.5">
@@ -501,12 +628,12 @@ function EntryForm({
   saving,
 }: {
   draft: EntryDraft;
-  setDraft: (draft: EntryDraft) => void;
+  setDraft: Dispatch<SetStateAction<EntryDraft>>;
   onSubmit: () => void;
   editing: boolean;
   saving: boolean;
 }) {
-  const update = <K extends keyof EntryDraft>(key: K, value: EntryDraft[K]) => setDraft({ ...draft, [key]: value });
+  const update = <K extends keyof EntryDraft>(key: K, value: EntryDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
 
   return (
     <div className="space-y-3">
@@ -518,6 +645,10 @@ function EntryForm({
         <label className="field">
           <span>업무일자</span>
           <input className="input" type="date" value={draft.workDate} onChange={(event) => update("workDate", event.target.value)} />
+        </label>
+        <label className="field">
+          <span>시간</span>
+          <input className="input" value={draft.workTime} onChange={(event) => update("workTime", event.target.value)} placeholder="예: 09:30" inputMode="numeric" maxLength={5} />
         </label>
         <label className="field">
           <span>업무유형</span>
@@ -545,6 +676,12 @@ function EntryForm({
           <span>매월 같은 날짜 반복</span>
           <select className="input" value={draft.repeatMonthly} onChange={(event) => update("repeatMonthly", event.target.value as EntryDraft["repeatMonthly"])}>
             {REPEAT_FLAGS.map((flag) => <option key={flag}>{flag}</option>)}
+          </select>
+        </label>
+        <label className="field">
+          <span>알림 방식</span>
+          <select className="input" value={draft.alarmMode} onChange={(event) => update("alarmMode", event.target.value as EntryDraft["alarmMode"])}>
+            {ALARM_MODES.map((mode) => <option key={mode}>{mode}</option>)}
           </select>
         </label>
       </div>
@@ -582,16 +719,17 @@ function EntryCard({
     <article className="rounded-lg border border-slate-200 bg-white p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="font-bold">{entry.title}</h3>
+          <h3 className="font-bold">{entry.workTime ? `${entry.workTime} · ${entry.title}` : entry.title}</h3>
           <p className="mt-1 text-sm text-slate-500">
             {entry.category} · {entry.priority} · {entry.repeatMonthly === "예" ? "매월 반복" : "일회성"}
           </p>
         </div>
         <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${STATUS_COLORS[entry.status]}`}>{entry.status}</span>
       </div>
-      {(entry.vendor || entry.memo || entry.amount > 0) && (
+      {(entry.vendor || entry.memo || entry.amount > 0 || (entry.workTime && entry.alarmMode !== "없음")) && (
         <div className="mt-3 space-y-1 text-sm text-slate-600">
           {entry.amount > 0 && <p>금액: {entry.amount.toLocaleString()}원</p>}
+          {entry.workTime && entry.alarmMode !== "없음" && <p>알림: {entry.workTime} 기준 1시간 전 · {entry.alarmMode}</p>}
           {entry.vendor && <p>거래처/관련처: {entry.vendor}</p>}
           {entry.memo && <p>{entry.memo}</p>}
           {generated && <p className="text-blue-700">반복 업무가 이 달력 날짜에 자동 표시되었습니다.</p>}
